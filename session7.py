@@ -1,5 +1,3 @@
-# california_price_prediction.py
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,9 +6,15 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from sklearn.metrics import (
+    r2_score,
+    mean_absolute_error,
+    mean_squared_error,
+    mean_absolute_percentage_error,
+    median_absolute_error
+)
 
-# 📥 Load Data
+# 📥 Load and Clean Data
 df = pd.read_csv("housing.csv")
 df.dropna(inplace=True)
 
@@ -25,14 +29,15 @@ df.rename(columns={
     'longitude': 'Longitude'
 }, inplace=True)
 
-# 🧮 Feature Selection
+# 🎯 Feature Set
 features = df[['MedInc', 'HouseAge', 'AveRooms', 'AveBedrms', 'population', 'AveOccup', 'Latitude', 'Longitude']]
 target = df['median_house_value']
 
-# ✂️ Train-Test Split
-X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+# 🔀 Data Splitting (80/10/10)
+X_temp, X_test, y_temp, y_test = train_test_split(features, target, test_size=0.1, random_state=42)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=1/9, random_state=42)
 
-# 🤖 Model Definitions
+# 🤖 Models
 models = {
     "Linear Regression": LinearRegression(),
     "Random Forest": RandomForestRegressor(random_state=42),
@@ -40,88 +45,51 @@ models = {
 }
 
 results = {}
-predicted_tables = {}
 
-# 🔁 Model Training and Evaluation
+# 🔁 Train & Evaluate on Validation Set
 for name, model in models.items():
     model.fit(X_train, y_train)
     pred_train = model.predict(X_train)
-    pred_test = model.predict(X_test)
+    pred_val = model.predict(X_val)
 
     results[name] = {
         "Train R2": r2_score(y_train, pred_train),
-        "Test R2": r2_score(y_test, pred_test),
-        "Test MAE": mean_absolute_error(y_test, pred_test),
-        "Test RMSE": np.sqrt(mean_squared_error(y_test, pred_test))
+        "Val R2": r2_score(y_val, pred_val),
+        "Val MAE": mean_absolute_error(y_val, pred_val),
+        "Val RMSE": np.sqrt(mean_squared_error(y_val, pred_val)),
+        "Val MAPE (%)": mean_absolute_percentage_error(y_val, pred_val) * 100,
+        "Val Median AE": median_absolute_error(y_val, pred_val)
     }
 
-    predicted_tables[name] = {
-        "train": pd.DataFrame({
-            "Actual": y_train,
-            "Predicted": pred_train,
-            "Absolute Error": np.abs(y_train - pred_train)
-        }),
-        "test": pd.DataFrame({
-            "Actual": y_test,
-            "Predicted": pred_test,
-            "Absolute Error": np.abs(y_test - pred_test)
-        })
-    }
+# 📊 Metrics Table
+results_df = pd.DataFrame(results).T.round(2)
 
-    # 📊 Actual vs Predicted Plot
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    sns.scatterplot(x=y_train, y=pred_train, color='blue')
-    plt.plot([y_train.min(), y_train.max()], [y_train.min(), y_train.max()], 'r--')
-    plt.title(f"{name} - Train")
-    plt.xlabel("Actual")
-    plt.ylabel("Predicted")
-
-    plt.subplot(1, 2, 2)
-    sns.scatterplot(x=y_test, y=pred_test, color='green')
-    plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-    plt.title(f"{name} - Test")
-    plt.xlabel("Actual")
-    plt.ylabel("Predicted")
-
+# 🔥 Plot Metrics Separately for Visibility
+metrics_to_plot = ['Val MAE', 'Val RMSE', 'Val MAPE (%)', 'Val Median AE']
+for metric in metrics_to_plot:
+    plt.figure(figsize=(8, 5))
+    sns.barplot(x=results_df.index, y=results_df[metric], palette="viridis")
+    plt.title(f"Validation Set - {metric}")
+    plt.ylabel(metric)
+    plt.xlabel("Model")
+    plt.grid(True, axis='y')
     plt.tight_layout()
     plt.show()
 
-    # 🧮 Residual Plot
-    residuals = y_test - pred_test
-    plt.figure(figsize=(6, 4))
-    sns.histplot(residuals, kde=True, bins=30, color='orange')
-    plt.title(f"{name} - Residuals")
-    plt.xlabel("Residuals")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-# 📊 Model Comparison
-results_df = pd.DataFrame(results).T
-results_df[['Test MAE', 'Test RMSE']] = results_df[['Test MAE', 'Test RMSE']].apply(pd.to_numeric)
-
-results_df[['Test MAE', 'Test RMSE']].plot(kind='bar', figsize=(10, 6), title='Model Error Comparison')
-plt.ylabel("Error")
-plt.xticks(rotation=0)
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-print("📈 Final Performance Metrics:\n")
+# 🧾 Print Full Metrics Table
+print("📋 Full Evaluation Metrics on Validation Set:")
 print(results_df)
 
-# 📋 Final Feature Table with Predictions from Best Model (Random Forest)
+# 📋 Prediction Table from Best Model (Random Forest)
 best_model = RandomForestRegressor(random_state=42)
 best_model.fit(X_train, y_train)
-pred_test_rf = best_model.predict(X_test)
+pred_val_rf = best_model.predict(X_val)
 
-# Include predictions in the feature DataFrame
-test_results = X_test.copy()
-test_results['Actual Value'] = y_test.values
-test_results['Predicted Value'] = pred_test_rf
-test_results['Absolute Error'] = np.abs(test_results['Actual Value'] - test_results['Predicted Value'])
+val_results = X_val.copy()
+val_results['Actual Value'] = y_val.values
+val_results['Predicted Value'] = pred_val_rf
+val_results['Absolute Error'] = np.abs(val_results['Actual Value'] - val_results['Predicted Value'])
 
-# Show top 10 predictions
-print("\n📋 Sample of Final Prediction Table (Top 10 rows):")
-print(test_results.head(10))
+# Show top 20 predictions
+print("\n📋 Sample of Validation Prediction Table (Top 20 rows):")
+print(val_results.head(20))
